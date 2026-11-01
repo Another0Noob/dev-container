@@ -1,0 +1,65 @@
+// For format details, see https://aka.ms/devcontainer.json.
+{
+	"name": "cachyos-dev",
+
+	// Built beforehand with: run-container . --build   (tag comes from compose.yaml)
+	"image": "cachyos-dev:latest",
+
+	// Alternative: let VS Code build it. Copy the Dockerfile and nvim-config/ into
+	// .devcontainer/ (paths are relative to this file) and use this instead of "image":
+	// "build": { "dockerfile": "Dockerfile", "context": "." },
+
+	// The image's user (created in the Dockerfile).
+	"remoteUser": "dev",
+
+	// Project mounted where the image expects it.
+	"workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+	"workspaceFolder": "/workspace",
+
+	"runArgs": [
+		// Disable ipv6 in the container, otherwise "localhost" is not visible
+		"--sysctl",
+		"net.ipv6.conf.all.disable_ipv6=1",
+		"--sysctl",
+		"net.ipv6.conf.default.disable_ipv6=1",
+		// Rootless podman: map the host UID to the container user (remove for Docker)
+		"--userns=keep-id"
+	],
+
+	// Same cache volumes as compose.yaml (project name "cachyos-dev"), so they are shared.
+	"mounts": [
+		"source=cachyos-dev_nvim-data,target=/home/dev/.local/share/nvim,type=volume",
+		"source=cachyos-dev_nvim-state,target=/home/dev/.local/state/nvim,type=volume",
+		"source=cachyos-dev_cargo-registry,target=/home/dev/.cargo/registry,type=volume",
+		"source=cachyos-dev_cargo-git,target=/home/dev/.cargo/git,type=volume",
+		"source=cachyos-dev_go-pkg,target=/home/dev/go/pkg,type=volume",
+		"source=cachyos-dev_npm-global,target=/home/dev/.npm-global,type=volume",
+		"source=cachyos-dev_cache,target=/home/dev/.cache,type=volume"
+	],
+
+	// Use 'forwardPorts' to make a list of ports inside the container available locally.
+	"forwardPorts": [
+		2999,
+		3001
+	],
+
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"donjayamanne.githistory",
+				"firefox-devtools.vscode-firefox-debug",
+				"humao.rest-client",
+				"mikestead.dotenv",
+				"ms-vscode-remote.remote-containers",
+				"ms-vscode.extension-test-runner",
+				"ms-vscode.live-server",
+				"orta.vscode-jest",
+				"streetsidesoftware.code-spell-checker",
+				"streetsidesoftware.code-spell-checker-german",
+				"tomoki1207.pdf",
+				"usernamehw.errorlens",
+				"vitest.explorer"
+			]
+		}
+	}
+}

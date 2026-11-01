@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# run-container [DIR] [--build] [-- COMMAND...]
+# Start the dev container with DIR (default: current directory) mounted at /workspace.
+set -euo pipefail
+
+# Resolve symlinks so this works when linked into ~/.local/bin
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+HERE="$(dirname "$SELF")"
+COMPOSE_FILE="$HERE/compose.yaml"
+IMAGE="cachyos-dev:latest"
+PROJECT_NAME="cachyos-dev"   # fixed, so cache volumes are shared by all projects
+# Prefer podman-compose (talks to podman directly, no socket needed).
+# `podman compose` may delegate to docker-compose, which needs podman.socket.
+if [[ -n "${CONTAINER_COMPOSE:-}" ]]; then
+  COMPOSE=($CONTAINER_COMPOSE)
+elif command -v podman-compose >/dev/null 2>&1; then
+  COMPOSE=(podman-compose)
+else
+  export PODMAN_COMPOSE_WARNING_LOGS=false
+  COMPOSE=(podman compose)
+fi
+
+dir="."
+build=0
+cmd=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --build) build=1; shift ;;
+    -h|--help)
+      sed -n '2,3p' "$SELF" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --) shift; cmd=("$@"); break ;;
+    *) dir="$1"; shift ;;
+  esac
+done
+
+if [[ ! -d "$dir" ]]; then
+  echo "run-container: not a directory: $dir" >&2; exit 1
+fi
+PROJECT_DIR="$(cd "$dir" && pwd -P)"
+export PROJECT_DIR
+export USER_UID="$(id -u)" USER_GID="$(id -g)"
+
+base=("${COMPOSE[@]}" -f "$COMPOSE_FILE" -p "$PROJECT_NAME")
+
+# Build on first use, or when --build is given
+if (( build )) || ! podman image exists "$IMAGE" 2>/dev/null; then
+  "${base[@]}" build
+fi
+
+exec "${base[@]}" run --rm --service-ports dev "${cmd[@]}"

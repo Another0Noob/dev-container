@@ -1,0 +1,61 @@
+services:
+  dev:
+    build:
+      context: .
+      args:
+        USER_UID: ${USER_UID:-1000}
+        USER_GID: ${USER_GID:-1000}
+    image: cachyos-dev:latest
+    hostname: cachyos-dev
+    working_dir: /workspace
+    tty: true
+    stdin_open: true
+    command: fish
+
+    # Rootless podman: map your host UID to the container user so files in the
+    # bind mount are owned by you on both sides. (Ignored by Docker.)
+    userns_mode: keep-id
+
+    environment:
+      TERM: ${TERM:-xterm-kitty}
+      COLORTERM: truecolor
+
+    # IPv6 disabled inside the container
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: "1"
+      net.ipv6.conf.default.disable_ipv6: "1"
+
+    # Forwarded ports (host:container). Bound to localhost only; drop the
+    # "127.0.0.1:" prefix to expose them on your LAN.
+    # Dev servers inside must listen on 0.0.0.0, not just localhost.
+    ports:
+      - "127.0.0.1:2999:2999"
+      - "127.0.0.1:3000:3000"
+
+    volumes:
+      # Your project. Set PROJECT_DIR in the shell or a .env file.
+      # :Z relabels for SELinux (needed on Fedora etc.; harmless elsewhere).
+      - ${PROJECT_DIR:-.}:/workspace:Z
+
+      # Persist caches and editor state across container recreations
+      - nvim-data:/home/dev/.local/share/nvim
+      - nvim-state:/home/dev/.local/state/nvim
+      - cargo-registry:/home/dev/.cargo/registry
+      - cargo-git:/home/dev/.cargo/git
+      - go-pkg:/home/dev/go/pkg
+      - npm-global:/home/dev/.npm-global
+      - cache:/home/dev/.cache
+
+      # Optional: git identity and ssh agent
+      # - ~/.gitconfig:/home/dev/.gitconfig:ro,Z
+      # - ${SSH_AUTH_SOCK}:/ssh-agent:Z
+      #   (and add SSH_AUTH_SOCK: /ssh-agent under environment)
+
+volumes:
+  nvim-data:
+  nvim-state:
+  cargo-registry:
+  cargo-git:
+  go-pkg:
+  npm-global:
+  cache:
