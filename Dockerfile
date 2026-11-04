@@ -17,6 +17,7 @@ RUN sed -i '/^\[options\]/a DisableSandboxNetwork' /etc/pacman.conf \
   go gopls delve golangci-lint \
   rustup \
   tmux \
+  yay \
   && rm -rf /var/cache/pacman/pkg/*
 
 # ---- Non-root user (UID/GID match the host so bind mounts stay writable) ---
@@ -40,6 +41,11 @@ ENV HOME=/home/${USERNAME} \
   COLORTERM=truecolor
 ENV PATH=${CARGO_HOME}/bin:${GOPATH}/bin:${NPM_CONFIG_PREFIX}/bin:${PATH}
 WORKDIR /home/${USERNAME}
+
+# ---- AUR packages (yay must run as the non-root user) -----------------------
+RUN yay -S --noconfirm --needed --cleanafter pi umbriel-git \
+  && yay -Scc --noconfirm \
+  && rm -rf ~/.cache/yay
 
 # ---- Rust toolchain, cache dirs, fish defaults ------------------------------
 # Cache dirs are created here so named volumes inherit the user's ownership.
