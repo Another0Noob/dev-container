@@ -43,7 +43,7 @@ ENV PATH=${CARGO_HOME}/bin:${GOPATH}/bin:${NPM_CONFIG_PREFIX}/bin:${PATH}
 WORKDIR /home/${USERNAME}
 
 # ---- AUR packages (yay must run as the non-root user) -----------------------
-RUN yay -S --noconfirm --needed --cleanafter pi umbriel-git \
+RUN yay -S --noconfirm --needed --cleanafter pi umbriel-git jq \
   && yay -Scc --noconfirm \
   && rm -rf ~/.cache/yay
 
@@ -54,6 +54,7 @@ RUN rustup default stable \
   && rustup component add rust-analyzer clippy rustfmt \
   && mkdir -p ~/.cargo/registry ~/.cargo/git ~/go/pkg ~/.npm-global ~/.cache \
   ~/.local/share/nvim ~/.local/state/nvim ~/.config/fish/conf.d \
+  ~/.pi/agent \
   && printf '%s\n' \
   'abbr -a vim nvim' \
   'abbr -a lg lazygit' \

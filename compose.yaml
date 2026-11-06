@@ -45,6 +45,7 @@ services:
       - go-pkg:/home/dev/go/pkg
       - npm-global:/home/dev/.npm-global
       - cache:/home/dev/.cache
+      - pi-data:/home/dev/.pi
 
       # Optional: git identity and ssh agent
       # - ~/.gitconfig:/home/dev/.gitconfig:ro,Z
@@ -59,3 +60,4 @@ volumes:
   go-pkg:
   npm-global:
   cache:
+  pi-data:
