@@ -19,6 +19,8 @@ services:
     environment:
       TERM: ${TERM:-xterm-kitty}
       COLORTERM: truecolor
+      XDG_RUNTIME_DIR: /run/user/${USER_UID:-1000}
+      WAYLAND_DISPLAY: ${WAYLAND_DISPLAY:-wayland-1}
 
     # IPv6 disabled inside the container
     sysctls:
@@ -46,7 +48,8 @@ services:
       - npm-global:/home/dev/.npm-global
       - cache:/home/dev/.cache
       - pi-data:/home/dev/.pi
-
+      - vibe-data:/home/dev/.vibe
+      - ${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY:-wayland-1}:/run/user/1000/${WAYLAND_DISPLAY:-wayland-1}
       # Optional: git identity and ssh agent
       # - ~/.gitconfig:/home/dev/.gitconfig:ro,Z
       # - ${SSH_AUTH_SOCK}:/ssh-agent:Z
@@ -61,3 +64,4 @@ volumes:
   npm-global:
   cache:
   pi-data:
+  vibe-data:

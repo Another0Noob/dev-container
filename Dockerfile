@@ -12,11 +12,12 @@ RUN sed -i '/^\[options\]/a DisableSandboxNetwork' /etc/pacman.conf \
   base-devel git openssh sudo \
   fish neovim kitty-terminfo \
   ripgrep fd fzf lazygit tree-sitter-cli unzip curl wget \
-  python luarocks \
+  python luarocks uv \
   nodejs npm pnpm yarn \
   go gopls delve golangci-lint \
   rustup \
-  tmux \
+  tmux jq \
+  devtools namcap shellcheck \
   yay \
   && rm -rf /var/cache/pacman/pkg/*
 
@@ -39,11 +40,11 @@ ENV HOME=/home/${USERNAME} \
   EDITOR=nvim \
   LANG=C.UTF-8 \
   COLORTERM=truecolor
-ENV PATH=${CARGO_HOME}/bin:${GOPATH}/bin:${NPM_CONFIG_PREFIX}/bin:${PATH}
+ENV PATH=${CARGO_HOME}/bin:${GOPATH}/bin:${NPM_CONFIG_PREFIX}/bin:${HOME}/.local/bin:${PATH}
 WORKDIR /home/${USERNAME}
 
 # ---- AUR packages (yay must run as the non-root user) -----------------------
-RUN yay -S --noconfirm --needed --cleanafter pi umbriel-git jq \
+RUN yay -S --noconfirm --needed --cleanafter pi mistral-vibe-bin termux-language-server \
   && yay -Scc --noconfirm \
   && rm -rf ~/.cache/yay
 
@@ -54,7 +55,7 @@ RUN rustup default stable \
   && rustup component add rust-analyzer clippy rustfmt \
   && mkdir -p ~/.cargo/registry ~/.cargo/git ~/go/pkg ~/.npm-global ~/.cache \
   ~/.local/share/nvim ~/.local/state/nvim ~/.config/fish/conf.d \
-  ~/.pi/agent \
+  ~/.pi/agent ~/.vibe\
   && printf '%s\n' \
   'abbr -a vim nvim' \
   'abbr -a lg lazygit' \
