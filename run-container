@@ -54,6 +54,46 @@ PROJECT_DIR="$(cd "$dir" && pwd -P)"
 export PROJECT_DIR
 export USER_UID="$(id -u)" USER_GID="$(id -g)"
 
+# ---- Git identity from this machine -----------------------------------------
+# Two files end up in the container (see compose.yaml):
+#   ~/.gitconfig.host  = your own git config, read-only, so aliases, pager,
+#                        credential helpers ... carry over unchanged.
+#   ~/.gitconfig       = generated here: includes the file above and then pins
+#                        user.name/user.email as they resolve for $PROJECT_DIR on
+#                        this machine. That also covers includeIf "gitdir:..."
+#                        rules, which can never match a /workspace path. Being
+#                        global-scope it still loses to repo-local config, so
+#                        `git config user.email ...` inside a repo keeps working.
+escape() { local s="$1"; s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; printf '%s' "$s"; }
+
+GIT_CONFIG_HOST="${GIT_CONFIG_HOST:-}"
+if [[ -z "$GIT_CONFIG_HOST" ]]; then
+  for f in "${GIT_CONFIG_GLOBAL:-}" "$HOME/.config/git/config" "$HOME/.gitconfig"; do
+    if [[ -n "$f" && -f "$f" ]]; then GIT_CONFIG_HOST="$f"; break; fi
+  done
+fi
+export GIT_CONFIG_HOST
+
+git_name="$(git -C "$PROJECT_DIR" config --get user.name 2>/dev/null || true)"
+git_email="$(git -C "$PROJECT_DIR" config --get user.email 2>/dev/null || true)"
+identity_file="${XDG_CACHE_HOME:-$HOME/.cache}/cachyos-dev/gitconfig"
+if [[ -n "$GIT_CONFIG_HOST" || -n "$git_email" ]]; then
+  mkdir -p "$(dirname "$identity_file")"
+  {
+    if [[ -n "$GIT_CONFIG_HOST" ]]; then
+      # path must match the mount target in compose.yaml
+      printf '[include]\n\tpath = /home/dev/.gitconfig.host\n'
+    fi
+    if [[ -n "$git_name" && -n "$git_email" ]]; then
+      printf '[user]\n\tname = %s\n\temail = %s\n' "$(escape "$git_name")" "$(escape "$git_email")"
+    fi
+  } >"$identity_file"
+  export GIT_IDENTITY_FILE="$identity_file"
+fi
+if [[ -z "$git_name" || -z "$git_email" ]]; then
+  echo "run-container: no git user.name/user.email found; commits will use ${USER:-$(id -un)}@${HOSTNAME:-localhost}" >&2
+fi
+
 base=("${COMPOSE[@]}" -f "$COMPOSE_FILE" -p "$PROJECT_NAME")
 
 # Build on first use, or when --build is given

@@ -39,6 +39,17 @@ services:
       # :Z relabels for SELinux (needed on Fedora etc.; harmless elsewhere).
       - ${PROJECT_DIR:-.}:/workspace:Z
 
+      # Git identity from your machine, both files set by run-container. Without
+      # them the placeholder is mounted instead, i.e. no git settings at all.
+      #   .gitconfig.host = your host config ($GIT_CONFIG_HOST: aliases, pager, ...)
+      #   .gitconfig      = generated ($GIT_IDENTITY_FILE): includes the host config
+      #                     and pins user.name/user.email resolved for PROJECT_DIR
+      #                     on the host, so includeIf "gitdir:..." rules apply too.
+      # Both are read-only: edit your config on the host, and use
+      # `git config --local` for repo-specific settings inside the container.
+      - ${GIT_CONFIG_HOST:-./gitconfig.placeholder}:/home/dev/.gitconfig.host:ro,Z
+      - ${GIT_IDENTITY_FILE:-./gitconfig.placeholder}:/home/dev/.gitconfig:ro,Z
+
       # Persist caches and editor state across container recreations
       - nvim-data:/home/dev/.local/share/nvim
       - nvim-state:/home/dev/.local/state/nvim
@@ -50,10 +61,12 @@ services:
       - pi-data:/home/dev/.pi
       - vibe-data:/home/dev/.vibe
       - ${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY:-wayland-1}:/run/user/1000/${WAYLAND_DISPLAY:-wayland-1}
-      # Optional: git identity and ssh agent
-      # - ~/.gitconfig:/home/dev/.gitconfig:ro,Z
+      # Optional: ssh agent
       # - ${SSH_AUTH_SOCK}:/ssh-agent:Z
       #   (and add SSH_AUTH_SOCK: /ssh-agent under environment)
+      # Optional: signed commits / credentials, if your host git config uses them
+      # - ${HOME}/.gnupg:/home/dev/.gnupg:ro,Z
+      # - ${HOME}/.git-credentials:/home/dev/.git-credentials:ro,Z
 
 volumes:
   nvim-data:

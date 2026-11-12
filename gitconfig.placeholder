@@ -1,0 +1,8 @@
+# Stand-in for the two git config files that run-container normally provides
+# (see compose.yaml): your host config at /home/dev/.gitconfig.host and the
+# generated identity file at /home/dev/.gitconfig. When run-container finds
+# nothing to mount, this comment-only file goes in, which git reads as "no
+# settings" -- commits then fall back to <user>@<hostname>, the old behaviour.
+#
+# It is never edited inside the container (the mount is read-only): change your
+# ~/.gitconfig on the host, or use `git config --local` for one repository.

@@ -34,7 +34,14 @@
 		"source=cachyos-dev_cargo-git,target=/home/dev/.cargo/git,type=volume",
 		"source=cachyos-dev_go-pkg,target=/home/dev/go/pkg,type=volume",
 		"source=cachyos-dev_npm-global,target=/home/dev/.npm-global,type=volume",
-		"source=cachyos-dev_cache,target=/home/dev/.cache,type=volume"
+		"source=cachyos-dev_cache,target=/home/dev/.cache,type=volume",
+		// Your git identity straight from the host (read-only). VS Code cannot run
+		// helpers, so this is a plain mount: per-directory identities via includeIf
+		// are not resolved -- use run-container for that.
+		// Point it at ${localEnv:HOME}/.config/git/config if that is where yours
+		// lives, and remove the line if you have neither: a missing source gets
+		// created as a directory by the engine and git then chokes on it.
+		"source=${localEnv:HOME}/.gitconfig,target=/home/dev/.gitconfig,type=bind,readonly"
 	],
 
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.

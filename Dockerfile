@@ -50,12 +50,15 @@ RUN yay -S --noconfirm --needed --cleanafter pi mistral-vibe-bin termux-language
 
 # ---- Rust toolchain, cache dirs, fish defaults ------------------------------
 # Cache dirs are created here so named volumes inherit the user's ownership.
+# The two gitconfig files are bind-mount targets (see compose.yaml); creating
+# them keeps the engine from turning a missing target into a directory.
 # PATH and EDITOR come from ENV above, so fish needs no extra setup for them.
 RUN rustup default stable \
   && rustup component add rust-analyzer clippy rustfmt \
   && mkdir -p ~/.cargo/registry ~/.cargo/git ~/go/pkg ~/.npm-global ~/.cache \
   ~/.local/share/nvim ~/.local/state/nvim ~/.config/fish/conf.d \
-  ~/.pi/agent ~/.vibe\
+  ~/.pi/agent ~/.vibe \
+  && touch ~/.gitconfig ~/.gitconfig.host \
   && printf '%s\n' \
   'abbr -a vim nvim' \
   'abbr -a lg lazygit' \
