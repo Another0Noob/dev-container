@@ -7,7 +7,11 @@ ARG USER_GID=1000
 # ---- System packages -------------------------------------------------------
 # pacman's hook/scriptlet sandbox tries to create a network namespace, which is
 # not permitted inside an (unprivileged) container build, hence the sed.
-RUN sed -i '/^\[options\]/a DisableSandboxNetwork' /etc/pacman.conf \
+# The package cache is a cache mount: it survives across builds (fast -Syu
+# rebuilds) without ending up in the image layers. Needs BuildKit (docker>=23)
+# or buildah (podman>=3), which is all this project builds with.
+RUN --mount=type=cache,target=/var/cache/pacman/pkg,sharing=locked \
+  sed -i '/^\[options\]/a DisableSandboxNetwork' /etc/pacman.conf \
   && pacman -Syu --noconfirm --needed \
   base-devel git openssh sudo \
   fish neovim kitty-terminfo \
@@ -17,9 +21,8 @@ RUN sed -i '/^\[options\]/a DisableSandboxNetwork' /etc/pacman.conf \
   go gopls delve golangci-lint \
   rustup \
   tmux jq \
-  devtools namcap shellcheck \
-  yay \
-  && rm -rf /var/cache/pacman/pkg/*
+  shellcheck \
+  yay
 
 # ---- Non-root user (UID/GID match the host so bind mounts stay writable) ---
 # -l: don't create a huge sparse lastlog/faillog entry for a high UID
@@ -43,10 +46,18 @@ ENV HOME=/home/${USERNAME} \
 ENV PATH=${CARGO_HOME}/bin:${GOPATH}/bin:${NPM_CONFIG_PREFIX}/bin:${HOME}/.local/bin:${PATH}
 WORKDIR /home/${USERNAME}
 
-# ---- AUR packages (yay must run as the non-root user) -----------------------
-RUN yay -S --noconfirm --needed --cleanafter pi mistral-vibe-bin termux-language-server \
+# ---- AUR package + Python CLI tools ----------------------------------------
+# mistral-vibe-bin and termux-language-server were previously installed via
+# yay, but that pulls ~40 python-* packages, several of which are not in the
+# Arch repos and get compiled from source by makepkg (Rust / C builds -- very
+# slow, and the makedepends stay installed afterwards). Both are published as
+# prebuilt wheels on PyPI, so installing them with uv takes seconds and keeps
+# the image lean. pi must stay an AUR build (yay).
+RUN yay -S --noconfirm --needed --cleanafter pi \
   && yay -Scc --noconfirm \
-  && rm -rf ~/.cache/yay
+  && rm -rf ~/.cache/yay \
+  && uv tool install mistral-vibe \
+  && uv tool install termux-language-server
 
 # ---- Rust toolchain, cache dirs, fish defaults ------------------------------
 # Cache dirs are created here so named volumes inherit the user's ownership.
