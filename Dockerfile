@@ -31,6 +31,9 @@ RUN --mount=type=cache,target=/home/${USERNAME}/.cache/uv,uid=${USER_UID},gid=${
   && uv tool install termux-language-server \
   && uv tool list
 
+RUN --mount=type=cache,target=/home/${USERNAME}/.cache/yay,uid=${USER_UID},gid=${USER_GID},sharing=locked \
+  yay -S pi-coding-agent-bin
+
 # ---- Cache dirs, fish defaults ---------------------------------------------
 # Cache dirs are created here so named volumes inherit the user's ownership.
 # The two gitconfig files are bind-mount targets (see compose.yaml); creating

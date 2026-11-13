@@ -15,7 +15,6 @@ FROM ${BASE_IMAGE}
 ARG USERNAME=dev
 ARG USER_UID=1000
 ARG USER_GID=1000
-ARG PI_VERSION=1.5.2
 
 # ---- System packages -------------------------------------------------------
 # pacman's hook/scriptlet sandbox tries to create a network namespace, which is
@@ -38,32 +37,7 @@ RUN --mount=type=cache,target=/var/cache/pacman/pkg,sharing=locked \
   rustup \
   tmux jq \
   shellcheck \
-  podman podman-compose crun slirp4netns fuse-overlayfs \
   yay
-
-# ---- pi -------------------------------------------------------------------
-# Upstream ships standalone Linux binaries, so take those. The AUR `pi` package
-# is a full source build (npm ci on the monorepo, then bundling), which used to
-# dominate the build time. AUR also has pi-coding-agent-bin / pi-bin if you
-# prefer checksums and updates managed by yay.
-# Deliberately NOT `npm i -g`: NPM_CONFIG_PREFIX points at ~/.npm-global, which
-# is a named volume at runtime and would shadow the install.
-RUN set -eu; \
-  case "$(uname -m)" in \
-    x86_64) asset=pi-linux-x64 ;; \
-    aarch64) asset=pi-linux-arm64 ;; \
-    *) echo "pi: unsupported architecture $(uname -m)" >&2; exit 1 ;; \
-  esac; \
-  base="https://github.com/earendil-works/pi/releases/download/v${PI_VERSION}"; \
-  curl -fsSL -o /tmp/pi.tar.gz "${base}/${asset}.tar.gz"; \
-  curl -fsSL -o /tmp/SHA256SUMS "${base}/SHA256SUMS"; \
-  cd /tmp; \
-  grep " ${asset}\.tar.gz$" SHA256SUMS | sha256sum -c -; \
-  install -d /opt/pi-coding-agent; \
-  tar xzf pi.tar.gz -C /opt/pi-coding-agent --strip-components=1; \
-  ln -sf /opt/pi-coding-agent/pi /usr/local/bin/pi; \
-  rm -f /tmp/pi.tar.gz /tmp/SHA256SUMS; \
-  pi --version
 
 # ---- Non-root user (UID/GID match the host so bind mounts stay writable) ---
 # -l: don't create a huge sparse lastlog/faillog entry for a high UID
@@ -94,9 +68,12 @@ WORKDIR /home/${USERNAME}
 # Mount $RUSTUP_HOME/downloads only -- mounting the whole RUSTUP_HOME would keep
 # the toolchain itself out of the image. uid/gid are required, otherwise a fresh
 # cache mount is root-owned and this RUN cannot write to it.
+
+RUN mkdir -p ~/.rustup ~/.cargo \
+  && chown -R ${USER_UID}:${USER_GID} ~/.rustup ~/.cargo
+
 RUN --mount=type=cache,target=/home/${USERNAME}/.rustup/downloads,uid=${USER_UID},gid=${USER_GID},sharing=locked \
-  rustup toolchain install stable --profile minimal --no-self-update \
+  rustup toolchain install stable --profile minimal \
   -c rust-analyzer -c clippy -c rustfmt \
-  && rustup default stable \
-  && rustc --version \
-  && cargo --version
+  && rustup default stable
+
