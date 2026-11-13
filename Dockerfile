@@ -1,72 +1,43 @@
-FROM docker.io/cachyos/cachyos-v3:latest
+# syntax=docker/dockerfile:1
+#
+# App layer: the bits that change day to day (Python CLI tools, fish defaults,
+# Neovim config). It starts from the image built by ./Dockerfile.base, so a
+# rebuild here is seconds instead of minutes.
+#
+#   ./run-container . --build          builds the base first if it is missing
+#   podman build -f Dockerfile -t cachyos-dev:latest .
+#
+ARG BASE_IMAGE=cachyos-dev-base:local
+FROM ${BASE_IMAGE}
 
+# Redclared: build args do not cross a FROM, and these are needed for the
+# cache-mount ownership and the COPY --chown below. USER, ENV and PATH already
+# come from the base image.
 ARG USERNAME=dev
 ARG USER_UID=1000
 ARG USER_GID=1000
 
-# ---- System packages -------------------------------------------------------
-# pacman's hook/scriptlet sandbox tries to create a network namespace, which is
-# not permitted inside an (unprivileged) container build, hence the sed.
-# The package cache is a cache mount: it survives across builds (fast -Syu
-# rebuilds) without ending up in the image layers. Needs BuildKit (docker>=23)
-# or buildah (podman>=3), which is all this project builds with.
-RUN --mount=type=cache,target=/var/cache/pacman/pkg,sharing=locked \
-  sed -i '/^\[options\]/a DisableSandboxNetwork' /etc/pacman.conf \
-  && pacman -Syu --noconfirm --needed \
-  base-devel git openssh sudo \
-  fish neovim kitty-terminfo \
-  ripgrep fd fzf lazygit tree-sitter-cli unzip curl wget \
-  python luarocks uv \
-  nodejs npm pnpm yarn \
-  go gopls delve golangci-lint \
-  rustup \
-  tmux jq \
-  shellcheck \
-  yay
+# ---- Python CLI tools ------------------------------------------------------
+# mistral-vibe and termux-language-server were previously installed via yay, but
+# that pulls ~40 python-* packages, several of which are not in the Arch repos
+# and get compiled from source by makepkg (Rust / C builds -- very slow, and the
+# makedepends stay installed afterwards). Both are published as prebuilt wheels
+# on PyPI, so uv takes seconds and keeps the image lean; the uv cache mount means
+# even a full rebuild of this layer reuses already-downloaded wheels.
+# Tools land in ~/.local/share/uv with launchers in ~/.local/bin -- neither is a
+# runtime volume, so they stay visible.
+RUN --mount=type=cache,target=/home/${USERNAME}/.cache/uv,uid=${USER_UID},gid=${USER_GID},sharing=locked \
+  uv tool install mistral-vibe \
+  && uv tool install termux-language-server \
+  && uv tool list
 
-# ---- Non-root user (UID/GID match the host so bind mounts stay writable) ---
-# -l: don't create a huge sparse lastlog/faillog entry for a high UID
-RUN groupadd -g ${USER_GID} ${USERNAME} 2>/dev/null || true \
-  && useradd -l -m -u ${USER_UID} -g ${USER_GID} -s /usr/bin/fish ${USERNAME} \
-  && echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME} \
-  && chmod 0440 /etc/sudoers.d/${USERNAME} \
-  && mkdir -p /workspace \
-  && chown ${USERNAME}:${USER_GID} /workspace
-
-USER ${USERNAME}
-ENV HOME=/home/${USERNAME} \
-  CARGO_HOME=/home/${USERNAME}/.cargo \
-  RUSTUP_HOME=/home/${USERNAME}/.rustup \
-  GOPATH=/home/${USERNAME}/go \
-  NPM_CONFIG_PREFIX=/home/${USERNAME}/.npm-global \
-  SHELL=/usr/bin/fish \
-  EDITOR=nvim \
-  LANG=C.UTF-8 \
-  COLORTERM=truecolor
-ENV PATH=${CARGO_HOME}/bin:${GOPATH}/bin:${NPM_CONFIG_PREFIX}/bin:${HOME}/.local/bin:${PATH}
-WORKDIR /home/${USERNAME}
-
-# ---- AUR package + Python CLI tools ----------------------------------------
-# mistral-vibe-bin and termux-language-server were previously installed via
-# yay, but that pulls ~40 python-* packages, several of which are not in the
-# Arch repos and get compiled from source by makepkg (Rust / C builds -- very
-# slow, and the makedepends stay installed afterwards). Both are published as
-# prebuilt wheels on PyPI, so installing them with uv takes seconds and keeps
-# the image lean. pi must stay an AUR build (yay).
-RUN yay -S --noconfirm --needed --cleanafter pi \
-  && yay -Scc --noconfirm \
-  && rm -rf ~/.cache/yay \
-  && uv tool install mistral-vibe \
-  && uv tool install termux-language-server
-
-# ---- Rust toolchain, cache dirs, fish defaults ------------------------------
+# ---- Cache dirs, fish defaults ---------------------------------------------
 # Cache dirs are created here so named volumes inherit the user's ownership.
 # The two gitconfig files are bind-mount targets (see compose.yaml); creating
 # them keeps the engine from turning a missing target into a directory.
-# PATH and EDITOR come from ENV above, so fish needs no extra setup for them.
-RUN rustup default stable \
-  && rustup component add rust-analyzer clippy rustfmt \
-  && mkdir -p ~/.cargo/registry ~/.cargo/git ~/go/pkg ~/.npm-global ~/.cache \
+# PATH and EDITOR come from the base image's ENV, so fish needs no extra setup
+# for them.
+RUN mkdir -p ~/.cargo/registry ~/.cargo/git ~/go/pkg ~/.npm-global ~/.cache \
   ~/.local/share/nvim ~/.local/state/nvim ~/.config/fish/conf.d \
   ~/.pi/agent ~/.vibe \
   && touch ~/.gitconfig ~/.gitconfig.host \
@@ -78,7 +49,20 @@ RUN rustup default stable \
 # ---- Neovim config: copied into the image at build time (no host mount) ----
 # Put a copy of your config in ./nvim-config next to this Dockerfile first.
 COPY --chown=${USERNAME}:${USER_GID} nvim-config/ /home/${USERNAME}/.config/nvim/
-RUN nvim --headless "+Lazy! sync" +qa || true
+
+# LazyVim is deliberately NOT prewarmed here. ~/.local/share/nvim is a named
+# volume at runtime (compose.yaml), and an empty volume is seeded from the image
+# only once: a rebuild never reaches an existing volume, while every rebuild
+# pays for ~55 git clones plus the tree-sitter parser builds. The first container
+# start populates the persistent volume instead, which is paid once, ever.
+#
+# If you want it baked anyway (fresh volumes / CI images), this reuses a cache
+# mount instead of re-cloning on every rebuild:
+#
+# RUN --mount=type=cache,target=/home/${USERNAME}/.cache/nvim-prewarm,uid=${USER_UID},gid=${USER_GID},sharing=locked \
+#   XDG_DATA_HOME=/home/${USERNAME}/.cache/nvim-prewarm nvim --headless "+Lazy! sync" +qa \
+#   && mkdir -p ~/.local/share/nvim \
+#   && cp -a /home/${USERNAME}/.cache/nvim-prewarm/nvim/. ~/.local/share/nvim/
 
 WORKDIR /workspace
 CMD ["fish"]

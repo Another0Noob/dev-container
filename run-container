@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# run-container [DIR] [--build] [-- COMMAND...]
+# run-container [DIR] [--build] [--rebuild-base] [-- COMMAND...]
 # Start the dev container with DIR (default: current directory) mounted at /workspace.
+#   --build          rebuild the app image (Dockerfile, seconds)
+#   --rebuild-base   also rebuild the heavy base image (Dockerfile.base, minutes)
 set -euo pipefail
 
 # Resolve symlinks so this works when linked into ~/.local/bin
@@ -8,6 +10,8 @@ SELF="$(readlink -f "${BASH_SOURCE[0]}")"
 HERE="$(dirname "$SELF")"
 COMPOSE_FILE="$HERE/compose.yaml"
 IMAGE="cachyos-dev:latest"
+BASE_IMAGE="${BASE_IMAGE:-cachyos-dev-base:local}" # must match ARG BASE_IMAGE in Dockerfile
+export BASE_IMAGE
 PROJECT_NAME="cachyos-dev" # fixed, so cache volumes are shared by all projects
 # Prefer podman-compose (talks to podman directly, no socket needed).
 # `podman compose` may delegate to docker-compose, which needs podman.socket.
@@ -20,8 +24,31 @@ else
   COMPOSE=(podman compose)
 fi
 
+# Engine for the bookkeeping compose does not do for us (is an image already
+# present? build Dockerfile.base). Overridable with CONTAINER_CLI.
+if [[ -n "${CONTAINER_CLI:-}" ]]; then
+  read -r -a CLI <<<"$CONTAINER_CLI"
+elif command -v podman >/dev/null 2>&1; then
+  CLI=(podman)
+elif command -v docker >/dev/null 2>&1; then
+  CLI=(docker)
+else
+  CLI=()
+fi
+
+# Does the engine already know this image?
+img_exists() {
+  ((${#CLI[@]})) || return 1
+  if [[ "${CLI[0]}" == podman ]]; then
+    podman image exists "$1" 2>/dev/null
+  else
+    "${CLI[@]}" image inspect "$1" >/dev/null 2>&1
+  fi
+}
+
 dir="."
 build=0
+rebuild_base=0
 cmd=()
 
 while [[ $# -gt 0 ]]; do
@@ -30,8 +57,13 @@ while [[ $# -gt 0 ]]; do
     build=1
     shift
     ;;
+  --rebuild-base)
+    build=1
+    rebuild_base=1
+    shift
+    ;;
   -h | --help)
-    sed -n '2,3p' "$SELF" | sed 's/^# \{0,1\}//'
+    sed -n '2,5p' "$SELF" | sed 's/^# \{0,1\}//'
     exit 0
     ;;
   --)
@@ -96,8 +128,21 @@ fi
 
 base=("${COMPOSE[@]}" -f "$COMPOSE_FILE" -p "$PROJECT_NAME")
 
-# Build on first use, or when --build is given
-if ((build)) || ! podman image exists "$IMAGE" 2>/dev/null; then
+# Base image: system packages + toolchains (Dockerfile.base). Built once, then
+# reused; --rebuild-base forces a fresh one.
+if ((rebuild_base)) || ! img_exists "$BASE_IMAGE"; then
+  ((${#CLI[@]})) || {
+    echo "run-container: neither podman nor docker found on PATH" >&2
+    exit 1
+  }
+  echo "run-container: building base image ${BASE_IMAGE} (slow, only once)" >&2
+  "${CLI[@]}" build -f "$HERE/Dockerfile.base" -t "$BASE_IMAGE" "$HERE"
+fi
+
+# App image: rebuilt only when missing or when --build was given. The old check
+# ran `podman image exists` unconditionally, which always fails on a Docker-only
+# host -- so it built on every single invocation.
+if ((build)) || ! img_exists "$IMAGE"; then
   "${base[@]}" build
 fi
 

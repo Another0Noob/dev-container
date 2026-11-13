@@ -1,0 +1,15 @@
+# Build context slimming: the two Dockerfiles only COPY nvim-config/, so
+# everything else in here is payload that podman/buildah would otherwise pack
+# into a tarball and hash for the layer cache keys.
+.git
+**/.git
+.gitignore
+.dockerignore
+compose.yaml
+devcontainer.json
+run-container
+
+# Build leftovers that must never sneak into an image
+**/node_modules
+**/*.log
+nvim-config/doc/tags

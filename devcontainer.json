@@ -2,11 +2,13 @@
 {
 	"name": "cachyos-dev",
 
-	// Built beforehand with: run-container . --build   (tag comes from compose.yaml)
+	// Built beforehand with: run-container . --build   (tag comes from compose.yaml;
+	// it builds Dockerfile.base first, then Dockerfile on top of it)
 	"image": "cachyos-dev:latest",
 
-	// Alternative: let VS Code build it. Copy the Dockerfile and nvim-config/ into
-	// .devcontainer/ (paths are relative to this file) and use this instead of "image":
+	// Alternative: let VS Code build it. Copy Dockerfile.base, Dockerfile and
+	// nvim-config/ into .devcontainer/ (paths are relative to this file), build the
+	// base once from a terminal, then use this instead of "image":
 	// "build": { "dockerfile": "Dockerfile", "context": "." },
 
 	// The image's user (created in the Dockerfile).

@@ -2,9 +2,15 @@ services:
   dev:
     build:
       context: .
+      # Dockerfile is the thin app layer; it starts from the image built by
+      # Dockerfile.base (system packages + toolchains). run-container builds the
+      # base on first use, or with --rebuild-base:
+      #   podman build -f Dockerfile.base -t cachyos-dev-base:local .
+      dockerfile: Dockerfile
       args:
         USER_UID: ${USER_UID:-1000}
         USER_GID: ${USER_GID:-1000}
+        BASE_IMAGE: ${BASE_IMAGE:-cachyos-dev-base:local}
     image: cachyos-dev:latest
     hostname: cachyos-dev
     working_dir: /workspace
@@ -15,6 +21,16 @@ services:
     # Rootless podman: map your host UID to the container user so files in the
     # bind mount are owned by you on both sides. (Ignored by Docker.)
     userns_mode: keep-id
+
+    # Nested containers: the image ships podman, podman-compose, crun,
+    # slirp4netns and fuse-overlayfs, so `podman build` works *inside* the dev
+    # container -- but only if the runtime hands over /dev/fuse and a writable
+    # cgroup fs, i.e. privileged mode. Uncomment to use it (a nested engine has
+    # its own storage under ~/.local/share/containers, which the `cache` volume
+    # does not cover, so add a volume for it if you want images to survive).
+    # devices:
+    #   - /dev/fuse:/dev/fuse
+    # privileged: true
 
     environment:
       TERM: ${TERM:-xterm-kitty}

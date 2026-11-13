@@ -1,0 +1,102 @@
+# syntax=docker/dockerfile:1
+#
+# Heavy layer: Arch system packages, toolchains, the pi binary, the dev user.
+# This is the part that takes minutes, so it is its own image: build it once,
+# rebuild it deliberately (run-container --rebuild-base), and let ./Dockerfile
+# (config + editor state, changes all the time) start from it in seconds.
+#
+#   podman build -f Dockerfile.base -t cachyos-dev-base:local .
+#
+# Keep BASE_IMAGE pinned (tag or @sha256:...) while you work: a floating
+# :latest that silently refreshes invalidates every layer below it.
+ARG BASE_IMAGE=docker.io/cachyos/cachyos-v3:latest
+FROM ${BASE_IMAGE}
+
+ARG USERNAME=dev
+ARG USER_UID=1000
+ARG USER_GID=1000
+ARG PI_VERSION=1.5.2
+
+# ---- System packages -------------------------------------------------------
+# pacman's hook/scriptlet sandbox tries to create a network namespace, which is
+# not permitted inside an (unprivileged) container build, hence the sed.
+# The package cache is a cache mount: it survives across builds (fast -Syu
+# rebuilds) without ending up in the image layers. Needs BuildKit (docker>=23)
+# or buildah (podman>=3), which is all this project builds with.
+# podman/podman-compose (+ crun, slirp4netns, fuse-overlayfs) are for running
+# containers *inside* this dev container; see the note in compose.yaml.
+RUN --mount=type=cache,target=/var/cache/pacman/pkg,sharing=locked \
+  sed -i '/^\[options\]/a DisableSandboxNetwork' /etc/pacman.conf \
+  && sed -i 's/^#*ParallelDownloads.*/ParallelDownloads = 20/' /etc/pacman.conf \
+  && pacman -Syu --noconfirm --needed \
+  base-devel git openssh sudo \
+  fish neovim kitty-terminfo \
+  ripgrep fd fzf lazygit tree-sitter-cli unzip curl wget \
+  python luarocks uv \
+  nodejs npm pnpm yarn \
+  go gopls delve golangci-lint \
+  rustup \
+  tmux jq \
+  shellcheck \
+  podman podman-compose crun slirp4netns fuse-overlayfs \
+  yay
+
+# ---- pi -------------------------------------------------------------------
+# Upstream ships standalone Linux binaries, so take those. The AUR `pi` package
+# is a full source build (npm ci on the monorepo, then bundling), which used to
+# dominate the build time. AUR also has pi-coding-agent-bin / pi-bin if you
+# prefer checksums and updates managed by yay.
+# Deliberately NOT `npm i -g`: NPM_CONFIG_PREFIX points at ~/.npm-global, which
+# is a named volume at runtime and would shadow the install.
+RUN set -eu; \
+  case "$(uname -m)" in \
+    x86_64) asset=pi-linux-x64 ;; \
+    aarch64) asset=pi-linux-arm64 ;; \
+    *) echo "pi: unsupported architecture $(uname -m)" >&2; exit 1 ;; \
+  esac; \
+  base="https://github.com/earendil-works/pi/releases/download/v${PI_VERSION}"; \
+  curl -fsSL -o /tmp/pi.tar.gz "${base}/${asset}.tar.gz"; \
+  curl -fsSL -o /tmp/SHA256SUMS "${base}/SHA256SUMS"; \
+  cd /tmp; \
+  grep " ${asset}\.tar.gz$" SHA256SUMS | sha256sum -c -; \
+  install -d /opt/pi-coding-agent; \
+  tar xzf pi.tar.gz -C /opt/pi-coding-agent --strip-components=1; \
+  ln -sf /opt/pi-coding-agent/pi /usr/local/bin/pi; \
+  rm -f /tmp/pi.tar.gz /tmp/SHA256SUMS; \
+  pi --version
+
+# ---- Non-root user (UID/GID match the host so bind mounts stay writable) ---
+# -l: don't create a huge sparse lastlog/faillog entry for a high UID
+RUN groupadd -g ${USER_GID} ${USERNAME} 2>/dev/null || true \
+  && useradd -l -m -u ${USER_UID} -g ${USER_GID} -s /usr/bin/fish ${USERNAME} \
+  && echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME} \
+  && chmod 0440 /etc/sudoers.d/${USERNAME} \
+  && mkdir -p /workspace \
+  && chown ${USERNAME}:${USER_GID} /workspace
+
+USER ${USERNAME}
+ENV HOME=/home/${USERNAME} \
+  CARGO_HOME=/home/${USERNAME}/.cargo \
+  RUSTUP_HOME=/home/${USERNAME}/.rustup \
+  GOPATH=/home/${USERNAME}/go \
+  NPM_CONFIG_PREFIX=/home/${USERNAME}/.npm-global \
+  SHELL=/usr/bin/fish \
+  EDITOR=nvim \
+  LANG=C.UTF-8 \
+  COLORTERM=truecolor
+ENV PATH=${CARGO_HOME}/bin:${GOPATH}/bin:${NPM_CONFIG_PREFIX}/bin:${HOME}/.local/bin:${PATH}
+WORKDIR /home/${USERNAME}
+
+# ---- Rust toolchain --------------------------------------------------------
+# --profile minimal skips rust-docs (~300 MB unpacked) and the rest of the
+# default profile; the components we want are requested explicitly, which also
+# collapses two sequential downloads into one.
+# Mount $RUSTUP_HOME/downloads only -- mounting the whole RUSTUP_HOME would keep
+# the toolchain itself out of the image. uid/gid are required, otherwise a fresh
+# cache mount is root-owned and this RUN cannot write to it.
+RUN --mount=type=cache,target=/home/${USERNAME}/.rustup/downloads,uid=${USER_UID},gid=${USER_GID},sharing=locked \
+  rustup toolchain install stable --profile minimal --no-self-update \
+  -c rust-analyzer -c clippy -c rustfmt \
+  && rustup default stable \
+  && rustc --version \
+  && cargo --version
